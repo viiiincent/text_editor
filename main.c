@@ -469,6 +469,15 @@ void process_key_press()
 		case PAGE_UP:
 		case PAGE_DOWN:
 			{
+				if (c == PAGE_UP)
+				{
+					E.cy = E.rowoff;
+				}
+				else if (c == PAGE_DOWN)
+				{
+					E.cy = E.rowoff + E.screen_rows - 1;
+					if (E.cy > E.screen_rows) E.cy = E.numrows;
+				}
 				int times = E.screen_rows;
 				while (times--)
 					c == PAGE_UP ? move_cursor(ARROW_UP) : move_cursor(ARROW_DOWN);
@@ -479,7 +488,8 @@ void process_key_press()
 			E.cx = 0;
 			break;
 		case END_KEY:
-			E.cx = E.screen_cols - 1;
+			if (E.cx < E.numrows)
+				E.cx = E.row[E.cy].size;
 			break;
 
 		case ARROW_UP:
