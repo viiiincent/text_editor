@@ -51,6 +51,7 @@ struct editor_config
 	struct termios orig_termios;
 	int numrows;
 	erow* row;
+	char* filename;
 };
 struct editor_config E;
 
@@ -257,6 +258,9 @@ void editor_append_row(char* s, size_t len)
 
 void editor_open(char* filename)
 {
+	free(E.filename);
+	E.filename = strdup(filename);
+
 	FILE* fp = fopen(filename, "r");
 	if (!fp) die("fopen");
 
@@ -357,11 +361,43 @@ void draw_rows(struct abuf *ab)
 		// // !debug
 
 		ab_append(ab, "\x1b[K", 3); // clear line
-		if (y < E.screen_rows-1)
-			ab_append(ab, "\r\n", 2);
+		ab_append(ab, "\r\n", 2);
 	}
 
-	write(STDIN_FILENO, "\x1b[H", 3);
+	// write(STDIN_FILENO, "\x1b[H", 3);
+}
+
+void draw_status_bar(struct abuf* ab)
+{
+	ab_append(ab, "\x1b[7m", 4);
+
+	char status[80], rstatus[80];
+	int len = snprintf(
+		status,
+		sizeof(status),
+		"%.20s - %d lines", E.filename ? E.filename : "[No Name]", E.numrows);
+	if (len > E.screen_cols) len = E.screen_cols;
+	ab_append(ab, status, len);
+
+	int rlen = snprintf(
+		rstatus,
+		sizeof(rstatus),
+		"%d/%d", E.cy + 1, E.numrows);
+
+	while (len < E.screen_cols)
+	{
+		if (E.screen_cols - len == rlen)
+		{
+			ab_append(ab, rstatus, rlen);
+			break;
+		}
+		else
+		{
+			ab_append(ab, " ", 1);
+			++len;
+		}
+	}
+	ab_append(ab, "\x1b[m", 3);
 }
 
 void editor_scroll()
@@ -399,6 +435,7 @@ void refresh_screen()
 	ab_append(&ab, "\x1b[H", 3);     // move cursor to col:1, row:1
 
 	draw_rows(&ab);
+	draw_status_bar(&ab);
 
 	// move cursor
 	char buf[32];
@@ -513,6 +550,8 @@ void init_editor()
 	E.row = NULL;
 	if (get_window_size(&E.screen_rows, &E.screen_cols) == -1)
 		die("get_window_size");
+	E.screen_rows -= 1; // status bar height
+	E.filename = NULL;
 }
 
 int main(int argc, char** argv)
