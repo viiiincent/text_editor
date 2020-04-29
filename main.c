@@ -6,10 +6,12 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #define YOLO_VERSION "0.0.1"
@@ -52,6 +54,9 @@ struct editor_config
 	int numrows;
 	erow* row;
 	char* filename;
+	char status_msg[80];
+	time_t status_msg_time;
+
 };
 struct editor_config E;
 
@@ -398,6 +403,16 @@ void draw_status_bar(struct abuf* ab)
 		}
 	}
 	ab_append(ab, "\x1b[m", 3);
+	ab_append(ab, "\r\n", 2);
+}
+
+void draw_message_bar(struct abuf* ab)
+{
+	ab_append(ab, "\x1b[K", 3);
+	int msg_len = strlen(E.status_msg);
+	if (msg_len > E.screen_cols) msg_len = E.screen_cols;
+	if (msg_len && time(NULL) - E.status_msg_time < 5)
+		ab_append(ab, E.status_msg, msg_len);
 }
 
 void editor_scroll()
@@ -436,6 +451,7 @@ void refresh_screen()
 
 	draw_rows(&ab);
 	draw_status_bar(&ab);
+	draw_message_bar(&ab);
 
 	// move cursor
 	char buf[32];
@@ -445,6 +461,15 @@ void refresh_screen()
 	ab_append(&ab, "\x1b[?25h", 6); // show cursor
 	write(STDIN_FILENO, ab.b, ab.len);
 	ab_free(&ab);
+}
+
+void set_status_message(const char* fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(E.status_msg, sizeof(E.status_msg), fmt, ap);
+	va_end(ap);
+	E.status_msg_time = time(NULL);
 }
 
 // input
@@ -550,8 +575,10 @@ void init_editor()
 	E.row = NULL;
 	if (get_window_size(&E.screen_rows, &E.screen_cols) == -1)
 		die("get_window_size");
-	E.screen_rows -= 1; // status bar height
+	E.screen_rows -= 2; // status bar height
 	E.filename = NULL;
+	E.status_msg[0] = '\0';
+	E.status_msg_time = 0;
 }
 
 int main(int argc, char** argv)
@@ -562,6 +589,8 @@ int main(int argc, char** argv)
 	{
 		editor_open(argv[1]);
 	}
+
+	set_status_message("HELP: Ctrl-Q = quit");
 
 	while (1)
 	{
