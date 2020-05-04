@@ -4,6 +4,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -21,6 +22,7 @@
 
 enum keys
 {
+	BACKSPACE = 127,
 	ARROW_LEFT = 1000,
 	ARROW_RIGHT,
 	ARROW_UP,
@@ -53,12 +55,15 @@ struct editor_config
 	struct termios orig_termios;
 	int numrows;
 	erow* row;
+	int is_dirty;
 	char* filename;
 	char status_msg[80];
 	time_t status_msg_time;
 
 };
 struct editor_config E;
+
+void set_status_message(const char* fmt, ...);
 
 // terminal
 void die(const char *s)
@@ -257,6 +262,7 @@ void editor_append_row(char* s, size_t len)
 	editor_update_row(&E.row[at]);
 
 	++E.numrows;
+	E.is_dirty = 1;
 }
 
 void editor_row_insert_char(erow* row, int at, int c)
@@ -267,6 +273,7 @@ void editor_row_insert_char(erow* row, int at, int c)
 	++row->size;
 	row->chars[at] = c;
 	editor_update_row(row);
+	E.is_dirty = 1;
 }
 
 // operations
@@ -280,6 +287,29 @@ void insert_char(int c)
 }
 
 // file i/o
+
+char* editor_rows_to_string(int* buffer_len)
+{
+	int file_len = 0;
+	int j;
+	for (j = 0; j < E.numrows; ++j)
+	{
+		file_len += E.row[j].size + 1;
+	}
+	*buffer_len = file_len;
+
+	char* buf = malloc(file_len);
+	char* p = buf;
+
+	for (j = 0; j < E.numrows; ++j)
+	{
+		memcpy(p, E.row[j].chars, E.row[j].size);
+		p += E.row[j].size;
+		*p = '\n';
+		++p;
+	}
+	return buf;
+}
 
 void editor_open(char* filename)
 {
@@ -300,6 +330,34 @@ void editor_open(char* filename)
 	}
 	free(line);
 	fclose(fp);
+	E.is_dirty = 0;
+}
+
+void editor_save()
+{
+	if (E.filename == NULL) return; // @todo prompt user for a file name
+
+	int len;
+	char* buf = editor_rows_to_string(&len);
+
+	int fd = open(E.filename, O_RDWR | O_CREAT, 0644); // @todo use a temporary file and rename it after success write
+	if (fd != -1)
+	{
+		if (ftruncate(fd, len) != -1)
+		{
+			if (write(fd, buf, len) != -1)
+			{
+				close(fd);
+				free(buf);
+				E.is_dirty = 0;
+				set_status_message("%d bytes written to disk", len);
+				return;
+			}
+		}
+		close(fd);
+	}
+	free(buf);
+	set_status_message("Can't save! I/O error: %s", strerror(errno));
 }
 
 // append buffer
@@ -400,7 +458,10 @@ void draw_status_bar(struct abuf* ab)
 	int len = snprintf(
 		status,
 		sizeof(status),
-		"%.20s - %d lines", E.filename ? E.filename : "[No Name]", E.numrows);
+		"%.20s - %d lines %s",
+		E.filename ? E.filename : "[No Name]",
+		E.numrows,
+		E.is_dirty ? "(modified)": "");
 	if (len > E.screen_cols) len = E.screen_cols;
 	ab_append(ab, status, len);
 
@@ -542,10 +603,18 @@ void process_key_press()
 	
 	switch (c)
 	{
+		case '\r':
+			// @todo
+			break;
+
 		case CTRL_KEY('q'):
 			write(STDIN_FILENO, "\x1b[2J", 4);
 			write(STDIN_FILENO, "\x1b[H", 3);
 			exit(0);
+			break;
+
+		case CTRL_KEY('s'):
+			editor_save();
 			break;
 
 		case PAGE_UP:
@@ -574,12 +643,23 @@ void process_key_press()
 				E.cx = E.row[E.cy].size;
 			break;
 
+		case BACKSPACE:
+		case CTRL_KEY('h'):
+		case DEL_KEY:
+			// @todo
+			break;
+
 		case ARROW_UP:
 		case ARROW_DOWN:
 		case ARROW_RIGHT:
 		case ARROW_LEFT:
 			move_cursor(c);
 			break;
+
+		case CTRL_KEY('l'):
+		case '\x1b':
+			break;
+
 		default:
 			insert_char(c);
 			break;
@@ -602,6 +682,7 @@ void init_editor()
 	E.filename = NULL;
 	E.status_msg[0] = '\0';
 	E.status_msg_time = 0;
+	E.is_dirty = 0;
 }
 
 int main(int argc, char** argv)
@@ -613,7 +694,7 @@ int main(int argc, char** argv)
 		editor_open(argv[1]);
 	}
 
-	set_status_message("HELP: Ctrl-Q = quit");
+	set_status_message("HELP: Ctrl-S = Save | Ctrl-Q = quit");
 
 	while (1)
 	{
