@@ -17,6 +17,7 @@
 
 #define YOLO_VERSION "0.0.1"
 #define TAB_LEN 8
+#define QUIT_TIMES 3
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
@@ -276,6 +277,15 @@ void editor_row_insert_char(erow* row, int at, int c)
 	E.is_dirty = 1;
 }
 
+void editor_row_del_char(erow* row, int at)
+{
+	if (at < 0 || at > row->size) return;
+	memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
+	row->size--;
+	editor_update_row(row);
+	E.is_dirty = 1;
+}
+
 // operations
 
 void insert_char(int c)
@@ -284,6 +294,18 @@ void insert_char(int c)
 		editor_append_row("", 0);
 	editor_row_insert_char(&E.row[E.cy], E.cx, c);
 	++E.cx;
+}
+
+void del_char()
+{
+	if (E.cy == E.numrows) return;
+
+	erow* row = &E.row[E.cy];
+	if (E.cx > 0)
+	{
+		editor_row_del_char(row, E.cx);
+		--E.cx;
+	}
 }
 
 // file i/o
@@ -598,6 +620,8 @@ void move_cursor(int key)
 
 void process_key_press()
 {
+	static int quit_times = QUIT_TIMES;
+
 	int c = read_key();
 	E.key_pressed = c;
 	
@@ -608,6 +632,12 @@ void process_key_press()
 			break;
 
 		case CTRL_KEY('q'):
+			if (E.is_dirty && quit_times > 0)
+			{
+				set_status_message("WARNING!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", quit_times);
+				--quit_times;
+				return;
+			}
 			write(STDIN_FILENO, "\x1b[2J", 4);
 			write(STDIN_FILENO, "\x1b[H", 3);
 			exit(0);
@@ -646,7 +676,8 @@ void process_key_press()
 		case BACKSPACE:
 		case CTRL_KEY('h'):
 		case DEL_KEY:
-			// @todo
+			if (c == DEL_KEY) move_cursor(ARROW_RIGHT);
+			del_char();
 			break;
 
 		case ARROW_UP:
@@ -664,6 +695,8 @@ void process_key_press()
 			insert_char(c);
 			break;
 	}
+
+	quit_times = QUIT_TIMES;
 }
 
 // init
