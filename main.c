@@ -641,23 +641,23 @@ void set_status_message(const char* fmt, ...)
 
 // input
 
-char* editor_prompt(char* prompt)
+char *editor_prompt(char *prompt)
 {
 	size_t bufsize = 128;
-	char* buffer = malloc(bufsize);
+	char *buf = malloc(bufsize);
 
 	size_t buflen = 0;
-	buffer[0] = '\0';
+	buf[0] = '\0';
 
 	while (1) {
-		set_status_message(prompt, buffer);
+		set_status_message(prompt, buf);
 		refresh_screen();
 
 		int c = read_key();
 		if (c == '\x1b')
 		{
 			set_status_message("");
-			free(buffer);
+			free(buf);
 			return NULL;
 		}
 		else if (c == '\r')
@@ -665,18 +665,18 @@ char* editor_prompt(char* prompt)
 			if (buflen != 0)
 			{
 				set_status_message("");
-				return buffer;
+				return buf;
 			}
-			else if (!iscntrl(c) && c < 128)
+		}
+		else if (!iscntrl(c) && c < 128)
+		{
+			if (buflen == bufsize - 1)
 			{
-				if (buflen == bufsize - 1)
-				{
-					bufsize *= 2;
-					buffer = realloc(buffer, bufsize);
-				}
-				buffer[buflen++] = c;
-				buffer[buflen] = '\0';
+				bufsize *= 2;
+				buf = realloc(buf, bufsize);
 			}
+			buf[buflen++] = c;
+			buf[buflen] = '\0';
 		}
 	}
 }
