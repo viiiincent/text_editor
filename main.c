@@ -654,7 +654,11 @@ char *editor_prompt(char *prompt)
 		refresh_screen();
 
 		int c = read_key();
-		if (c == '\x1b')
+		if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE)
+		{
+			if (buflen != 0) buf[--buflen] = '\0';
+		}
+		else if (c == '\x1b')
 		{
 			set_status_message("");
 			free(buf);
