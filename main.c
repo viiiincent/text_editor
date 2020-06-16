@@ -35,12 +35,19 @@ enum keys
 	DEL_KEY
 };
 
+enum highlight {
+	HL_NORMAL = 0,
+	HL_NUMBER,
+	HL_MATCH
+};
+
 typedef struct erow
 {
 	int size;
 	int rsize;
 	char* chars;
 	char* render;
+	unsigned char* hl;
 } erow;
 
 struct termios original_term_config;
@@ -60,7 +67,6 @@ struct editor_config
 	char* filename;
 	char status_msg[80];
 	time_t status_msg_time;
-
 };
 struct editor_config E;
 
@@ -207,6 +213,34 @@ int get_window_size(int *rows, int *cols)
 	}
 }
 
+// highlighting
+
+void editor_update_syntax(erow *row)
+{
+	row->hl = realloc(row->hl, row->rsize);
+	memset(row->hl, HL_NORMAL, row->rsize);
+
+	int i;
+	for (i = 0; i < row->rsize; ++i)
+	{
+		if (isdigit(row->render[i]))
+			row->hl[i] = HL_NUMBER;
+	}
+}
+
+int editor_syntax_to_color(int hl)
+{
+	switch (hl)
+	{
+		case HL_NUMBER:
+			return 31;
+		case HL_MATCH:
+			return 34;
+		default:
+			return 37;
+	}
+}
+
 // row operations
 
 int editor_row_cx_to_rx(erow *row, int cx)
@@ -264,6 +298,8 @@ void editor_update_row(erow* row)
 
 	row->render[idx] = '\0';
 	row->rsize = idx;
+
+	editor_update_syntax(row);
 }
 
 void editor_insert_row(int at, char* s, size_t len)
@@ -280,6 +316,7 @@ void editor_insert_row(int at, char* s, size_t len)
 
 	E.row[at].rsize = 0;
 	E.row[at].render = NULL;
+	E.row[at].hl = NULL;
 	editor_update_row(&E.row[at]);
 
 	++E.numrows;
@@ -290,6 +327,7 @@ void editor_free_row(erow* row)
 {
 	free(row->render);
 	free(row->chars);
+	free(row->hl);
 }
 
 void editor_del_row(int at)
@@ -467,6 +505,16 @@ void editor_find_callback(char* query, int key)
 	static int last_match = -1;
 	static int direction = 1;
 
+	static int saved_hl_line;
+	static char* saved_hl = NULL;
+
+	if (saved_hl)
+	{
+		memcpy(E.row[saved_hl_line].hl, saved_hl, E.row[saved_hl_line].rsize);
+		free(saved_hl);
+		saved_hl = NULL;
+	}
+
 	if (key == '\r' || key == '\x1b')
 	{
 		last_match = -1;
@@ -504,6 +552,11 @@ void editor_find_callback(char* query, int key)
 			E.cy = current;
 			E.cx = editor_row_rx_to_cx(row, match - row->render);
 			E.rowoff = E.numrows;
+
+			saved_hl_line = current;
+			saved_hl = malloc(row->rsize);
+			memcpy(saved_hl, row->hl, row->rsize);
+			memset(&row->hl[match - row->render], HL_MATCH, strlen(query));
 			break;
 		}
 	}
@@ -589,35 +642,40 @@ void draw_rows(struct abuf *ab)
 			int len = E.row[filerow].rsize - E.coloff;
 			if (len < 0) len = 0;
 			if (len > E.screen_cols) len = E.screen_cols;
-			ab_append(ab, &E.row[filerow].render[E.coloff], len);
+
+			char* c = &E.row[filerow].render[E.coloff];
+			unsigned char* hl = &E.row[filerow].hl[E.coloff];
+			int current_color = -1;
+			int j;
+			for (j = 0; j < len; ++j)
+			{
+				if (hl[j] == HL_NORMAL)
+				{
+					if (current_color != -1)
+					{
+						ab_append(ab, "\x1b[39m", 5);
+						current_color = -1;
+					}
+					ab_append(ab, &c[j], 1);
+				}
+				else
+				{
+					int color = editor_syntax_to_color(hl[j]);
+					if (color != current_color)
+					{
+						current_color = color;
+						char buf[16];
+						int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+						ab_append(ab, buf, clen);
+					}
+					ab_append(ab, &c[j], 1);
+				}
+			}
+			ab_append(ab, "\x1b[39m", 5);
 		}
-
-		// // debug
-		// if (y == E.screen_rows - 2)
-		// {
-		// 	char key_pressed[20];
-		// 	int key_pressed_len = snprintf(key_pressed, sizeof(key_pressed), "key: %d", E.key_pressed);
-		// 	int padding = E.screen_cols - key_pressed_len - 2;
-		// 	while (padding--)
-		// 		ab_append(ab, " ", 1);
-		// 	ab_append(ab, key_pressed, 8);
-		// }
-		// if (y == E.screen_rows - 1)
-		// {
-		// 	char cursor_pos[20];
-		// 	int cursor_pos_len = snprintf(cursor_pos, sizeof(cursor_pos), "cy: %d, cx: %d", E.cy, E.cx);
-		// 	int padding = E.screen_cols - cursor_pos_len - 2;
-		// 	while (padding--)
-		// 		ab_append(ab, " ", 1);
-		// 	ab_append(ab, cursor_pos, cursor_pos_len);
-		// }
-		// // !debug
-
 		ab_append(ab, "\x1b[K", 3); // clear line
 		ab_append(ab, "\r\n", 2);
 	}
-
-	// write(STDIN_FILENO, "\x1b[H", 3);
 }
 
 void draw_status_bar(struct abuf* ab)
