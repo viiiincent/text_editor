@@ -37,11 +37,14 @@ enum keys
 
 enum highlight {
 	HL_NORMAL = 0,
+	HL_COMMENT,
 	HL_NUMBER,
+	HL_STRING,
 	HL_MATCH
 };
 
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
+#define HL_HIGHLIGHT_STRINGS (1<<1)
 
 typedef struct erow
 {
@@ -56,6 +59,7 @@ struct editor_syntax
 {
 	char* filetype;
 	char** filematch;
+	char* single_line_comment_start;
 	int flags;
 };
 
@@ -86,7 +90,8 @@ struct editor_syntax HL_DB[] =
 	{
 		"c",
 		C_HL_extensions,
-		HL_HIGHLIGHT_NUMBERS
+		"//",
+		HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
 	}
 };
 
@@ -249,12 +254,54 @@ void editor_update_syntax(erow *row)
 
 	if (E.syntax == NULL) return;
 
+	char* scs = E.syntax->single_line_comment_start;
+	int scs_len = scs ? strlen(scs) : 0;
+
 	int prev_sep = 1;
+	int in_string = 0;
 	int i = 0;
 	while (i < row->rsize)
 	{
 		char c = row->render[i];
 		unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
+
+		if (scs_len && !in_string)
+		{
+			if (!strncmp(&row->render[i], scs, scs_len))
+			{
+				memset(&row->hl[i], HL_COMMENT, row->rsize - i);
+				break;
+			}
+		}
+
+		if (E.syntax->flags & HL_HIGHLIGHT_STRINGS)
+		{
+			if (in_string)
+			{
+				row->hl[i] = HL_STRING;
+				if (c == '\\' && i + 1 < row->rsize)
+				{
+					row->hl[i + 1] = HL_STRING;
+					i += 2;
+					continue;
+				}
+
+				if (c == in_string) in_string = 0;
+				++i;
+				prev_sep = 1;
+				continue;
+			}
+			else
+			{
+				if (c == '"' || c == '\'')
+				{
+					in_string = c;
+					row->hl[i] = HL_STRING;
+					++i;
+					continue;
+				}
+			}
+		}
 
 		if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS)
 		{
@@ -277,10 +324,10 @@ int editor_syntax_to_color(int hl)
 {
 	switch (hl)
 	{
-		case HL_NUMBER:
-			return 31;
-		case HL_MATCH:
-			return 34;
+		case HL_COMMENT: return 36;
+		case HL_STRING: return 35;
+		case HL_NUMBER: return 31;
+		case HL_MATCH: return 34;
 		default:
 			return 37;
 	}
