@@ -3,7 +3,6 @@
 #define _GNU_SOURCE
 
 #include <ctype.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,9 +10,9 @@
 #include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
-#include <termios.h>
 #include <time.h>
-#include <unistd.h>
+
+#include "editor.h"
 
 #define YOLO_VERSION "0.0.1"
 #define TAB_LEN 8
@@ -35,6 +34,7 @@ enum keys
 	DEL_KEY
 };
 
+
 enum highlight {
 	HL_NORMAL = 0,
 	HL_COMMENT,
@@ -49,18 +49,6 @@ enum highlight {
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
 #define HL_HIGHLIGHT_STRINGS (1<<1)
 
-typedef struct erow
-{
-	int idx;
-	int size;
-	int rsize;
-	char* chars;
-	char* render;
-	unsigned char* hl;
-	int hl_open_comment;
-
-} erow;
-
 struct editor_syntax
 {
 	char* filetype;
@@ -71,27 +59,6 @@ struct editor_syntax
 	char* multiline_comment_end;
 	int flags;
 };
-
-struct termios original_term_config;
-struct editor_config
-{
-	int key_pressed; // debug
-	int cx, cy;
-	int rx;
-	int rowoff;
-	int coloff;
-	int screen_rows;
-	int screen_cols;
-	struct editor_syntax* syntax;
-	struct termios orig_termios;
-	int numrows;
-	erow* row;
-	int is_dirty;
-	char* filename;
-	char status_msg[80];
-	time_t status_msg_time;
-};
-struct editor_config E;
 
 char* C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
 char* C_HL_keywords[] =
@@ -117,39 +84,6 @@ struct editor_syntax HL_DB[] =
 void set_status_message(const char* fmt, ...);
 void refresh_screen();
 char* editor_prompt(char* prompt, void (*callback) (char*, int));
-
-// terminal
-void die(const char *s)
-{
-	write(STDIN_FILENO, "\x1b[2J", 4); // clear entire screen
-	write(STDIN_FILENO, "\x1b[H", 3);  // move cursor to col:1, row:1
-	perror(s);
-	exit(1);
-}
-
-void disable_raw_mode()
-{
-	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
-		die("tcsetattr");
-}
-
-void enable_raw_mode()
-{
-	if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
-		die("tcgetattr");
-	atexit(disable_raw_mode);
-
-	struct termios config = E.orig_termios;
-	config.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-	config.c_oflag &= ~OPOST;
-	config.c_cflag |= CS8;
-	config.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);
-	config.c_cc[VMIN] = 0;
-	config.c_cc[VTIME] = 1;
-
-	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &config) == -1)
-		die("tcsetattr");
-}
 
 int read_key()
 {
@@ -862,20 +796,21 @@ void draw_rows(struct abuf *ab)
 			int j;
 			for (j = 0; j < len; ++j)
 			{
-				if (iscntrl(c[j]))
-				{
-					char sym = (c[j] < 26) ? '@' + c[j] : '?';
-					ab_append(ab, "\x1b[7m", 4);
-					ab_append(ab, &sym, 1);
-					ab_append(ab, "\x1b[m", 3);
-					if (current_color != -1)
-					{
-						char buf[16];
-						int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
-						ab_append(ab, buf, clen);
-					}
-				}
-				else if (hl[j] == HL_NORMAL)
+				// if (iscntrl(c[j]))
+				// {
+				// 	char sym = (c[j] < 26) ? '@' + c[j] : '?';
+				// 	ab_append(ab, "\x1b[7m", 4);
+				// 	ab_append(ab, &sym, 1);
+				// 	ab_append(ab, "\x1b[m", 3);
+				// 	if (current_color != -1)
+				// 	{
+				// 		char buf[16];
+				// 		int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+				// 		ab_append(ab, buf, clen);
+				// 	}
+				// }
+				// else
+				if (hl[j] == HL_NORMAL)
 				{
 					if (current_color != -1)
 					{
@@ -1209,7 +1144,6 @@ void init_editor()
 
 int main(int argc, char** argv)
 {
-	enable_raw_mode();
 	init_editor();
 	if (argc >= 2)
 	{
