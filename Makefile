@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -pedantic -std=c99
 
-yolo: main.o editor.o
+editor: main.o editor.o
 	$(CC) -o $@ $^ $(CFLAGS)
 
 %.o: %.c editor.h
