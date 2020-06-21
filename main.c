@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <strings.h>
-#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -145,49 +144,6 @@ int read_key()
 	else
 	{
 		return c;
-	}
-}
-
-// helper for plan b to get the screensize
-int get_cursor_position(int* rows, int* cols)
-{	
-	if (write(STDIN_FILENO, "\x1b[6n", 4) != 4)
-		return -1;
-
-	char buf[32];
-	unsigned int i = 0;
-
-	while (i < sizeof(buf)-1)
-	{
-		if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
-		if (buf[i] == 'R') break;
-		++i;
-	}
-	buf[i] = '\0';
-	printf("\r\n&buf[1]: '%s'\r\n", &buf[1]);
-
-	if (buf[0] != '\x1b' || buf[1] != '[') return -1;
-	if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
-
-	return 0;
-}
-
-int get_window_size(int *rows, int *cols)
-{
-	struct winsize ws;
-
-	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
-	{
-		// plan b to get the screensize
-		if (write(STDIN_FILENO, "\x1b[999C\x1b[999B", 12) != 12)
-			return -1;
-		return get_cursor_position(rows, cols);
-	}
-	else
-	{
-		*cols = ws.ws_col;
-		*rows = ws.ws_row;
-		return 0;
 	}
 }
 
@@ -796,21 +752,20 @@ void draw_rows(struct abuf *ab)
 			int j;
 			for (j = 0; j < len; ++j)
 			{
-				// if (iscntrl(c[j]))
-				// {
-				// 	char sym = (c[j] < 26) ? '@' + c[j] : '?';
-				// 	ab_append(ab, "\x1b[7m", 4);
-				// 	ab_append(ab, &sym, 1);
-				// 	ab_append(ab, "\x1b[m", 3);
-				// 	if (current_color != -1)
-				// 	{
-				// 		char buf[16];
-				// 		int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
-				// 		ab_append(ab, buf, clen);
-				// 	}
-				// }
-				// else
-				if (hl[j] == HL_NORMAL)
+				if (iscntrl(c[j]))
+				{
+					char sym = (c[j] < 26) ? '@' + c[j] : '?';
+					ab_append(ab, "\x1b[7m", 4);
+					ab_append(ab, &sym, 1);
+					ab_append(ab, "\x1b[m", 3);
+					if (current_color != -1)
+					{
+						char buf[16];
+						int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+						ab_append(ab, buf, clen);
+					}
+				}
+				else if (hl[j] == HL_NORMAL)
 				{
 					if (current_color != -1)
 					{
@@ -1122,29 +1077,9 @@ void process_key_press()
 	quit_times = QUIT_TIMES;
 }
 
-// init
-void init_editor()
-{
-	E.cx = 0;
-	E.cy = 0;
-	E.rx = 0;
-	E.rowoff = 0;
-	E.coloff = 0;
-	E.numrows = 0;
-	E.row = NULL;
-	if (get_window_size(&E.screen_rows, &E.screen_cols) == -1)
-		die("get_window_size");
-	E.screen_rows -= 2; // status bar height
-	E.filename = NULL;
-	E.status_msg[0] = '\0';
-	E.status_msg_time = 0;
-	E.is_dirty = 0;
-	E.syntax = NULL;
-}
-
 int main(int argc, char** argv)
 {
-	init_editor();
+	init();
 	if (argc >= 2)
 	{
 		editor_open(argv[1]);

@@ -6,6 +6,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <sys/ioctl.h>
 
 typedef struct erow
 {
@@ -40,6 +41,9 @@ struct editor_config
 };
 struct editor_config E;
 
+void init();
+
+// utils
 void die(const char *s);
 
 #endif
