@@ -1,10 +1,13 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -pedantic -std=c99
+OBJECTS=main.o editor.o syntax_highlight.o abuff.o
+HEADERS=editor.h syntax_highlight.h abuff.h
+INCLUDES := -I.
 
-editor: main.o editor.o
+editor: $(OBJECTS)
 	$(CC) -o $@ $^ $(CFLAGS)
 
-%.o: %.c editor.h
+%.o: %.c $(HEADERS)
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 .PHONY: clean

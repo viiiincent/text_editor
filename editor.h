@@ -1,12 +1,23 @@
 #ifndef EDITOR_H_
 #define EDITOR_H_
 
-#include <stdlib.h>
+#include <ctype.h>
 #include <errno.h>
-#include <termios.h>
-#include <unistd.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
+#include <termios.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "syntax_highlight.h"
+#include "abuff.h"
+
+#define YOLO_VERSION "0.0.1"
+#define TAB_LEN 8
+#define QUIT_TIMES 3
+#define CTRL_KEY(k) ((k) & 0x1f)
 
 typedef struct erow
 {
@@ -39,9 +50,17 @@ struct editor_config
 	char status_msg[80];
 	time_t status_msg_time;
 };
-struct editor_config E;
+extern struct editor_config E;
 
 void init();
+void editor_scroll();
+void refresh_screen();
+void draw_rows(struct abuf* ab);
+void draw_status_bar(struct abuf* ab);
+void draw_message_bar(struct abuf* ab);
+void set_status_message(const char* fmt, ...);
+
+int editor_row_cx_to_rx(erow* row, int cx);
 
 // utils
 void die(const char *s);
